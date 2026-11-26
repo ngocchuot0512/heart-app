@@ -1,0 +1,62 @@
+{
+  "test": [
+    {
+      "Mô hình": "SVM (tối ưu)",
+      "Accuracy (%)": 80.33,
+      "Precision (%)": 80.0,
+      "Recall (%)": 84.85,
+      "F1-Score (%)": 82.35,
+      "ROC-AUC": 0.8582
+    },
+    {
+      "Mô hình": "Logistic Regression",
+      "Accuracy (%)": 80.33,
+      "Precision (%)": 80.0,
+      "Recall (%)": 84.85,
+      "F1-Score (%)": 82.35,
+      "ROC-AUC": 0.8712
+    },
+    {
+      "Mô hình": "Random Forest",
+      "Accuracy (%)": 75.41,
+      "Precision (%)": 76.47,
+      "Recall (%)": 78.79,
+      "F1-Score (%)": 77.61,
+      "ROC-AUC": 0.868
+    },
+    {
+      "Mô hình": "KNN (k=5)",
+      "Accuracy (%)": 78.69,
+      "Precision (%)": 77.78,
+      "Recall (%)": 84.85,
+      "F1-Score (%)": 81.16,
+      "ROC-AUC": 0.8377
+    }
+  ],
+  "cv": [
+    {
+      "Mô hình": "SVM (tối ưu)",
+      "CV Accuracy (%)": "84.1 ± 4.1",
+      "CV Recall (%)": "90.8 ± 8.6",
+      "CV ROC-AUC": "0.908 ± 0.018"
+    },
+    {
+      "Mô hình": "Logistic Regression",
+      "CV Accuracy (%)": "83.1 ± 2.8",
+      "CV Recall (%)": "86.6 ± 9.9",
+      "CV ROC-AUC": "0.905 ± 0.018"
+    },
+    {
+      "Mô hình": "Random Forest",
+      "CV Accuracy (%)": "81.5 ± 4.0",
+      "CV Recall (%)": "84.1 ± 8.4",
+      "CV ROC-AUC": "0.908 ± 0.013"
+    },
+    {
+      "Mô hình": "KNN (k=5)",
+      "CV Accuracy (%)": "80.8 ± 2.7",
+      "CV Recall (%)": "86.0 ± 4.1",
+      "CV ROC-AUC": "0.884 ± 0.020"
+    }
+  ]
+}
