@@ -69,16 +69,32 @@ FIELD_KEYS = {
 }
 
 
+def _persist(key: str):
+    """Khóa chặt giá trị vào kho bền vững ngay khi người dùng thay đổi ô nhập."""
+    if key in st.session_state:
+        st.session_state["assess_data"][key] = st.session_state[key]
+
+
+def _set_all_fields(updates: dict):
+    """Cập nhật đồng bộ cả kho bền vững lẫn widget state."""
+    st.session_state.setdefault("assess_data", dict(DEFAULTS))
+    for k, v in updates.items():
+        st.session_state["assess_data"][k] = v
+        st.session_state[k] = v
+
+
 def _sync_from_profile():
     """Tự động điền thông tin từ tab Hồ sơ sức khỏe nếu người dùng đã lưu."""
+    updates = {}
     if st.session_state.get("profile_name"):
-        st.session_state["f_name"] = st.session_state["profile_name"]
+        updates["f_name"] = st.session_state["profile_name"]
     if "prof_birth_year" in st.session_state:
-        st.session_state["f_age"] = max(18, min(100, datetime.now().year - st.session_state["prof_birth_year"]))
+        updates["f_age"] = max(18, min(100, datetime.now().year - st.session_state["prof_birth_year"]))
     for src, dst in [("prof_sex", "f_sex"), ("prof_height", "f_height"), ("prof_weight", "f_weight"),
                      ("prof_smoke", "f_smoke"), ("prof_hist", "f_hist")]:
         if src in st.session_state:
-            st.session_state[dst] = st.session_state[src]
+            updates[dst] = st.session_state[src]
+    _set_all_fields(updates)
 
 
 def _load_sample():
@@ -90,32 +106,34 @@ def _load_sample():
          "f_hist": "cardio_history", "f_cp": "cp", "f_trestbps": "trestbps", "f_chol": "chol",
          "f_fbs": "fbs", "f_restecg": "restecg", "f_thalach": "thalach", "f_exang": "exang",
          "f_oldpeak": "oldpeak", "f_slope": "slope", "f_ca": "ca", "f_thal": "thal"}
+    updates = {}
     for k, col in m.items():
         v = row[col]
-        st.session_state[k] = v if isinstance(v, str) else (float(v) if k == "f_oldpeak" else int(v))
+        updates[k] = v if isinstance(v, str) else (float(v) if k == "f_oldpeak" else int(v))
+    _set_all_fields(updates)
 
 
 def render(bundle: dict):
-    # Kho lưu trữ bền vững không bị Streamlit tự xóa khi chuyển bước/chuyển tab
     if "assess_data" not in st.session_state:
         st.session_state["assess_data"] = dict(DEFAULTS)
     data = st.session_state["assess_data"]
 
-    # Đồng bộ ngược từ kho bền vững ra các key widget trước khi vẽ giao diện
-    for k, v in data.items():
+    for k in DEFAULTS:
         if k in st.session_state:
             data[k] = st.session_state[k]
-        else:
-            st.session_state[k] = v
+        st.session_state[k] = data[k]
 
     st.session_state.setdefault("assess_step", 1)
 
     pre = st.session_state.pop("prefill", None)
     if pre:
+        updates = {}
         if "_systolic" in pre:
-            st.session_state["f_sys"] = int(pre.pop("_systolic"))
+            updates["f_sys"] = int(pre.pop("_systolic"))
+            updates["f_trestbps"] = updates["f_sys"]
         for key, val in pre.items():
-            st.session_state[FIELD_KEYS[key]] = float(val) if key == "oldpeak" else int(val)
+            updates[FIELD_KEYS[key]] = float(val) if key == "oldpeak" else int(val)
+        _set_all_fields(updates)
         st.session_state["assess_step"] = 2
 
     st.title("🩺 Đánh giá nguy cơ tim mạch")
@@ -188,19 +206,19 @@ def render(bundle: dict):
         with st.container(border=True):
             st.subheader("❤️ Bước 2: Huyết áp & Chỉ số xét nghiệm máu")
             g, h, i = st.columns(3)
-            g.number_input("Huyết áp tâm thu (mmHg)", 70, 250, key="f_sys")
+            g.number_input("Huyết áp tâm thu (mmHg)", 70, 250, key="f_sys", on_change=_persist, args=("f_sys",))
             g.caption("Số trên khi đo huyết áp (ví dụ: 120 mmHg).")
-            h.number_input("Huyết áp tâm trương (mmHg)", 40, 150, key="f_dia")
+            h.number_input("Huyết áp tâm trương (mmHg)", 40, 150, key="f_dia", on_change=_persist, args=("f_dia",))
             h.caption("Số dưới khi đo huyết áp (ví dụ: 80 mmHg).")
-            i.number_input("Huyết áp lúc nghỉ - trestbps (mmHg) *", 80, 220, key="f_trestbps")
+            i.number_input("Huyết áp lúc nghỉ - trestbps (mmHg) *", 80, 220, key="f_trestbps", on_change=_persist, args=("f_trestbps",))
             i.caption("Đưa vào mô hình AI (thường bằng huyết áp tâm thu).")
 
             j, k, l = st.columns(3)
-            j.number_input("Cholesterol toàn phần (mg/dL) *", 100, 600, key="f_chol")
+            j.number_input("Cholesterol toàn phần (mg/dL) *", 100, 600, key="f_chol", on_change=_persist, args=("f_chol",))
             j.caption("Bình thường < 200 mg/dL (giới hạn: 100–600).")
-            k.selectbox("Đường huyết lúc đói > 120 mg/dL *", list(YN), format_func=YN.get, key="f_fbs")
+            k.selectbox("Đường huyết lúc đói > 120 mg/dL *", list(YN), format_func=YN.get, key="f_fbs", on_change=_persist, args=("f_fbs",))
             k.caption("Chọn 'Có' nếu đường huyết đói > 120 mg/dL.")
-            l.number_input("Nhịp tim tối đa (bpm) *", 60, 220, key="f_thalach")
+            l.number_input("Nhịp tim tối đa (bpm) *", 60, 220, key="f_thalach", on_change=_persist, args=("f_thalach",))
             l.caption("Nhịp tim cao nhất đạt được khi gắng sức.")
 
         # Hộp giải thích chi tiết từng chỉ số ngay trong trang nhập liệu (mục 1.4 docx)
