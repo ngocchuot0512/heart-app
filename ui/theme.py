@@ -331,29 +331,6 @@ h1, h2, h3 {
   text-align: right;
 }
 
-/* ---------- Chat Trợ lý AI ---------- */
-.chat-bubble-user {
-  background: var(--navy);
-  color: #FFFFFF;
-  padding: 0.85rem 1.1rem;
-  border-radius: 16px 16px 4px 16px;
-  margin: 0.5rem 0 0.5rem auto;
-  max-width: 82%;
-  font-size: 0.93rem;
-}
-.chat-bubble-ai {
-  background: #FFFFFF;
-  color: var(--ink);
-  border: 1px solid #E2E8F0;
-  padding: 0.95rem 1.15rem;
-  border-radius: 16px 16px 16px 4px;
-  margin: 0.5rem auto 0.8rem 0;
-  max-width: 88%;
-  box-shadow: var(--shadow);
-  font-size: 0.93rem;
-  line-height: 1.55;
-}
-
 .disclaimer {
   background: #FFFFFF;
   border-radius: 14px;

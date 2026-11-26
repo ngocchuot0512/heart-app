@@ -15,7 +15,7 @@ from ui.pages import assess, assistant, auth, history, home, profile, result
 
 apply_theme()
 
-NAV = ["Trang chủ", "Đánh giá", "Lịch sử", "Trợ lý AI", "Cá nhân"]
+NAV = ["Trang chủ", "Đánh giá", "Lịch sử", "Kiến thức", "Cá nhân"]
 
 
 @st.cache_resource
@@ -71,7 +71,7 @@ elif page == "Đánh giá":
         assess.render(bundle)
 elif page == "Lịch sử":
     history.render(bundle)
-elif page == "Trợ lý AI":
+elif page == "Kiến thức":
     assistant.render(bundle)
 else:
     profile.render(bundle)

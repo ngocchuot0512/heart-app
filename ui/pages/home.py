@@ -57,7 +57,7 @@ def render(bundle: dict):
         st.button("🩺 BẮT ĐẦU ĐÁNH GIÁ NGUY CƠ TIM MẠCH MỚI", type="primary", use_container_width=True,
                   on_click=_go, args=("Đánh giá", "form"))
     with cta2:
-        st.button("💬 Hỏi Trợ lý AI Tim mạch", use_container_width=True, on_click=_go, args=("Trợ lý AI",))
+        st.button("📚 Kiến thức tim mạch", use_container_width=True, on_click=_go, args=("Kiến thức",))
 
     st.write("")
 
@@ -142,4 +142,4 @@ def render(bundle: dict):
                 f'<div class="s">{art["summary"]}</div></div>',
                 unsafe_allow_html=True,
             )
-        st.button("Đọc thêm tại Thư viện kiến thức", on_click=_go, args=("Trợ lý AI",))
+        st.button("Đọc thêm tại Thư viện kiến thức", on_click=_go, args=("Kiến thức",))
