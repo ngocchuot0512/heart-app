@@ -4,6 +4,8 @@ import streamlit as st
 from db import database
 from ui.theme import disclaimer, hero_banner
 
+APP_URL = "http://20.41.121.186:8501"
+
 
 def render():
     hero_banner(
@@ -13,6 +15,64 @@ def render():
     )
     _, mid, _ = st.columns([1, 1.35, 1])
     with mid:
+        # ==================== XỬ LÝ LIÊN KẾT TỪ EMAIL (?code=...) ====================
+        code = st.query_params.get("code")
+        if code and not st.session_state.get("recovery_ready"):
+            c = database.get_client()
+            if c is not None:
+                try:
+                    c.auth.exchange_code_for_session({"auth_code": code})
+                    st.session_state["recovery_ready"] = True
+                    st.query_params.clear()
+                    st.rerun()
+                except Exception:
+                    st.query_params.clear()
+                    st.error("Liên kết xác thực đã hết hạn hoặc đã được sử dụng. Vui lòng thực hiện lại.")
+
+        if st.session_state.get("recovery_ready"):
+            st.subheader("🔑 Đặt lại mật khẩu mới")
+            st.info("Xác thực email thành công. Vui lòng nhập mật khẩu mới cho tài khoản của bạn.")
+            with st.form("set_new_password"):
+                new_pw = st.text_input("Mật khẩu mới (tối thiểu 6 ký tự)", type="password")
+                confirm_pw = st.text_input("Xác nhận mật khẩu mới", type="password")
+                col_save, col_cancel = st.columns(2)
+                with col_save:
+                    submitted = st.form_submit_button("Lưu mật khẩu mới", type="primary", use_container_width=True)
+                with col_cancel:
+                    cancelled = st.form_submit_button("Quay lại đăng nhập", use_container_width=True)
+
+                if cancelled:
+                    c = database.get_client()
+                    if c:
+                        c.auth.sign_out()
+                    st.session_state.pop("recovery_ready", None)
+                    st.rerun()
+
+                if submitted:
+                    if len(new_pw) < 6:
+                        st.warning("Mật khẩu mới phải có ít nhất 6 ký tự.")
+                    elif new_pw != confirm_pw:
+                        st.error("Mật khẩu xác nhận không khớp.")
+                    else:
+                        c = database.get_client()
+                        if c is None:
+                            st.error(database.NOT_CONFIGURED)
+                        else:
+                            try:
+                                c.auth.update_user({"password": new_pw})
+                                c.auth.sign_out()
+                                st.session_state.pop("recovery_ready", None)
+                                st.session_state["pw_reset_done"] = True
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Không thể cập nhật mật khẩu: {e}")
+            disclaimer()
+            return
+
+        if st.session_state.pop("pw_reset_done", False):
+            st.success("Đổi mật khẩu thành công! Vui lòng đăng nhập bằng mật khẩu mới.")
+
+        # ==================== GIAO DIỆN 3 TAB CHÍNH ====================
         tab_in, tab_up, tab_reset = st.tabs(["🔑 Đăng nhập", "📝 Đăng ký", "🔄 Quên mật khẩu"])
         with tab_in:
             with st.form("login"):
@@ -57,7 +117,10 @@ def render():
                             st.error(database.NOT_CONFIGURED)
                         else:
                             try:
-                                c.auth.reset_password_for_email(r_email.strip())
+                                c.auth.reset_password_for_email(
+                                    r_email.strip(),
+                                    options={"redirect_to": APP_URL},
+                                )
                                 st.success("Đã gửi hướng dẫn đặt lại mật khẩu. Vui lòng kiểm tra hộp thư email.")
                             except Exception as e:
                                 st.error(f"Không thể gửi yêu cầu: {e}")
