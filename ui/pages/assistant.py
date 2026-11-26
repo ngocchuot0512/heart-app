@@ -1,5 +1,7 @@
 """Màn hình 10 & 11: Trợ lý AI tư vấn sức khỏe tim mạch (có kiểm soát an toàn) & Thư viện kiến thức."""
 import streamlit as st
+from google import genai
+from google.genai import types
 
 from db import database
 from ui.pages.knowledge import ARTICLES, METRIC_GUIDE
@@ -16,32 +18,16 @@ SUGGESTED_QUESTIONS = [
 
 EMERGENCY_KEYWORDS = ["đau ngực dữ dội", "khó thở", "ngất", "nhồi máu", "bóp nghẹt ngực", "vã mồ hôi lạnh"]
 
+SYSTEM_PROMPT = """Bạn là Trợ lý Sức khỏe Tim mạch của ứng dụng CardioScreen.
+Nhiệm vụ của bạn là giải thích các chỉ số y khoa (huyết áp, cholesterol, nhịp tim, ECG, ST depression...), tư vấn lối sống lành mạnh và hỗ trợ người dùng hiểu kết quả sàng lọc.
+Quy tắc bắt buộc:
+- Trả lời bằng tiếng Việt rõ ràng, súc tích, dễ hiểu, có gạch đầu dòng khoa học.
+- Không chẩn đoán bệnh thay bác sĩ, không kê đơn thuốc cụ thể.
+- Luôn giữ giọng điệu hỗ trợ, khách quan, chuẩn y khoa."""
 
-def _generate_safe_reply(prompt: str, use_profile: bool) -> str:
-    """Trả lời dựa trên kho kiến thức y khoa đã chuẩn hóa, nhận diện tình huống khẩn cấp và không kê đơn."""
-    q = prompt.lower().strip()
 
-    # 1. Nhận diện khẩn cấp 115
-    if any(kw in q for kw in EMERGENCY_KEYWORDS):
-        return (
-            "🚨 **CẢNH BÁO KHẨN CẤP:** Các triệu chứng bạn vừa mô tả có thể liên quan đến tình trạng tim mạch cấp tính.\n\n"
-            "- Hãy **gọi ngay Cấp cứu 115** hoặc nhờ người thân đưa tới bệnh viện gần nhất ngay lập tức.\n"
-            "- Ngồi nghỉ yên tại chỗ, nới lỏng quần áo, không tự lái xe."
-        )
-
-    # 2. Tham khảo hồ sơ nếu người dùng cho phép
-    context_note = ""
-    if use_profile:
-        rows, _ = database.fetch_history()
-        if rows:
-            last = rows[-1]
-            context_note = (
-                f"\n\n📋 *Dựa trên lần đánh giá gần nhất của bạn ({last.get('patient_name', 'Hồ sơ')}):* "
-                f"Huyết áp lúc nghỉ **{last.get('trestbps')} mmHg**, Cholesterol **{last.get('chol')} mg/dL**, "
-                f"Điểm dự đoán AI **{last.get('risk_probability')}%** (Mức: **{last.get('risk_level')}**)."
-            )
-
-    # 3. Đối chiếu nội dung chuẩn hóa
+def _fallback_rule_reply(q: str, context_note: str, use_profile: bool) -> str:
+    """Dự phòng trả lời theo luật khi chưa cấu hình API Key hoặc lỗi mạng."""
     if "huyết áp" in q:
         g = METRIC_GUIDE["trestbps"]
         return (
@@ -83,11 +69,70 @@ def _generate_safe_reply(prompt: str, use_profile: bool) -> str:
         return "Bạn chưa có dữ liệu đánh giá nào trong lịch sử. Hãy vào mục **Đánh giá** để thực hiện lần kiểm tra đầu tiên."
 
     return (
-        "Cảm ơn câu hỏi của bạn! Hiện tại tôi hỗ trợ giải đáp dựa trên nguồn kiến thức tim mạch chuẩn hóa về: "
-        "**huyết áp, cholesterol, đường huyết, nhịp tim, chế độ ăn uống, vận động và dấu hiệu cảnh báo**.\n\n"
-        "Bạn có thể chọn một trong các câu hỏi gợi ý bên dưới hoặc đặt câu hỏi cụ thể hơn. "
-        "*(Lưu ý: Tôi không kê đơn thuốc hay thay thế tư vấn trực tiếp của bác sĩ)*." + context_note
+        "Cảm ơn câu hỏi của bạn! Hiện tại tôi chưa kết nối được với khóa API AI nên đang trả lời theo chế độ chuẩn hóa. "
+        "Bạn có thể hỏi về: **huyết áp, cholesterol, đường huyết, nhịp tim, chế độ ăn uống, vận động** hoặc chọn các gợi ý bên dưới." + context_note
     )
+
+
+def _generate_safe_reply(prompt: str, use_profile: bool, history: list[dict]) -> str:
+    """Kiểm soát an toàn 115 -> Gắn ngữ cảnh hồ sơ -> Gọi Gemini API (có dự phòng)."""
+    q = prompt.lower().strip()
+
+    # 1. Nhận diện khẩn cấp 115 trước khi gọi API
+    if any(kw in q for kw in EMERGENCY_KEYWORDS):
+        return (
+            "🚨 **CẢNH BÁO KHẨN CẤP:** Các triệu chứng bạn vừa mô tả có thể liên quan đến tình trạng tim mạch cấp tính.\n\n"
+            "- Hãy **gọi ngay Cấp cứu 115** hoặc nhờ người thân đưa tới bệnh viện gần nhất ngay lập tức.\n"
+            "- Ngồi nghỉ yên tại chỗ, nới lỏng quần áo, không tự lái xe."
+        )
+
+    # 2. Lấy dữ liệu hồ sơ gần nhất nếu người dùng bật công tắc
+    context_note = ""
+    raw_context = "Người dùng không chia sẻ hồ sơ cá nhân."
+    if use_profile:
+        rows, _ = database.fetch_history()
+        if rows:
+            last = rows[-1]
+            context_note = (
+                f"\n\n📋 *Dựa trên lần đánh giá gần nhất của bạn ({last.get('patient_name', 'Hồ sơ')}):* "
+                f"Huyết áp lúc nghỉ **{last.get('trestbps')} mmHg**, Cholesterol **{last.get('chol')} mg/dL**, "
+                f"Điểm dự đoán AI **{last.get('risk_probability')}%** (Mức: **{last.get('risk_level')}**)."
+            )
+            raw_context = (
+                f"Hồ sơ gần nhất ({last.get('patient_name', 'Hồ sơ')}): Tuổi {last.get('age')}, "
+                f"Huyết áp nghỉ {last.get('trestbps')} mmHg, Cholesterol {last.get('chol')} mg/dL, "
+                f"Nhịp tim tối đa {last.get('thalach')} bpm, Xác suất nguy cơ AI {last.get('risk_probability')}% ({last.get('risk_level')})."
+            )
+        else:
+            raw_context = "Người dùng đã bật chia sẻ nhưng chưa có bản ghi đánh giá nào trong lịch sử."
+
+    # 3. Gọi Gemini API bằng khóa trong .streamlit/secrets.toml
+    api_key = st.secrets.get("GEMINI_API_KEY", "")
+    if not api_key:
+        return _fallback_rule_reply(q, context_note, use_profile)
+
+    try:
+        client = genai.Client(api_key=api_key)
+        contents = []
+        for m in history[-8:]:
+            role = "user" if m["role"] == "user" else "model"
+            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
+
+        res = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=f"{SYSTEM_PROMPT}\n\nDữ liệu người dùng: {raw_context}",
+                temperature=0.4,
+                max_output_tokens=800,
+            ),
+        )
+        if res and res.text:
+            return res.text
+    except Exception:
+        pass
+
+    return _fallback_rule_reply(q, context_note, use_profile)
 
 
 def render(bundle: dict):
@@ -101,10 +146,15 @@ def render(bundle: dict):
 
     # ==================== TAB 1: TRỢ LÝ AI ====================
     with tab_chat:
-        use_prof = st.toggle(
+        c_tog, c_clr = st.columns([4, 1], vertical_alignment="center")
+        use_prof = c_tog.toggle(
             "Cho phép Trợ lý AI tham khảo chỉ số gần nhất trong hồ sơ của tôi",
             value=True,
         )
+        if c_clr.button("🗑️ Xóa chat", use_container_width=True):
+            st.session_state.pop("chat_messages", None)
+            st.rerun()
+
         st.session_state.setdefault("chat_messages", [
             {
                 "role": "assistant",
@@ -115,55 +165,4 @@ def render(bundle: dict):
         # Hiển thị lịch sử trò chuyện
         for msg in st.session_state["chat_messages"]:
             if msg["role"] == "user":
-                st.markdown(f'<div class="chat-bubble-user">{msg["content"]}</div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="chat-bubble-ai">{msg["content"]}</div>', unsafe_allow_html=True)
-
-        # Câu hỏi gợi ý nhanh
-        st.caption("💡 Câu hỏi gợi ý nhanh:")
-        g_cols = st.columns(3)
-        for idx, q in enumerate(SUGGESTED_QUESTIONS):
-            if g_cols[idx % 3].button(q, key=f"sug_{idx}", use_container_width=True):
-                st.session_state["chat_messages"].append({"role": "user", "content": q})
-                reply = _generate_safe_reply(q, use_prof)
-                st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
-                st.rerun()
-
-        # Ô nhập tin nhắn
-        with st.form("chat_form", clear_on_submit=True):
-            c_in, c_btn = st.columns([4.5, 1], vertical_alignment="bottom")
-            user_q = c_in.text_input("Nhập câu hỏi của bạn...", label_visibility="collapsed",
-                                     placeholder="Ví dụ: Huyết áp 140/90 mmHg có cao không?")
-            if c_btn.form_submit_button("Gửi", type="primary", use_container_width=True) and user_q.strip():
-                st.session_state["chat_messages"].append({"role": "user", "content": user_q.strip()})
-                reply = _generate_safe_reply(user_q.strip(), use_prof)
-                st.session_state["chat_messages"].append({"role": "assistant", "content": reply})
-                st.rerun()
-
-        disclaimer()
-
-    # ==================== TAB 2: THƯ VIỆN BÀI VIẾT ====================
-    with tab_lib:
-        st.subheader("Kiến thức chăm sóc & phòng ngừa bệnh tim mạch")
-        cats = ["Tất cả"] + sorted(list({a["category"] for a in ARTICLES}))
-        sel_cat = st.selectbox("Lọc theo chủ đề", cats)
-        for art in ARTICLES:
-            if sel_cat != "Tất cả" and art["category"] != sel_cat:
-                continue
-            with st.expander(f"📄 [{art['category']}] {art['title']} ({art['read_time']})"):
-                st.info(art["summary"])
-                st.markdown(art["content"])
-        disclaimer()
-
-    # ==================== TAB 3: TỪ ĐIỂN CHỈ SỐ ====================
-    with tab_metrics:
-        st.subheader("Giải thích chi tiết các chỉ số lâm sàng trong ứng dụng")
-        for key, info in METRIC_GUIDE.items():
-            with st.expander(f"🩺 {info['name']}"):
-                st.markdown(
-                    f"- **Là gì:** {info['what']}\n"
-                    f"- **Ý nghĩa lâm sàng:** {info['meaning']}\n"
-                    f"- **Khoảng tham chiếu:** {info['reference']}\n"
-                    f"- **Yếu tố ảnh hưởng:** {info['factors']}\n"
-                    f"- **Khi nào cần đi khám:** {info['when_doctor']}"
-                )
+                st.markdown(f'<div class="chat-bubble-
